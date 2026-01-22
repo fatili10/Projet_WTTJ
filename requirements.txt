@@ -12,3 +12,7 @@ sqlalchemy
 pydantic
 pyodbc
 python-dotenv
+schedule
+python-jose[cryptography]
+python-multipart
+python-docx
