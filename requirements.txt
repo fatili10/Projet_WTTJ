@@ -16,3 +16,4 @@ schedule
 python-jose[cryptography]
 python-multipart
 python-docx
+azure-storage-blob

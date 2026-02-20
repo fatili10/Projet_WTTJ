@@ -1,0 +1,86 @@
+# =============================================================================
+# Exemple de fichier de variables Terraform
+# Copiez ce fichier vers terraform.tfvars et modifiez les valeurs
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Configuration générale
+# -----------------------------------------------------------------------------
+
+resource_group_name = "RG_FELJATTIOUI"
+location            = "francecentral"
+
+tags = {
+  Environment = "Production"
+  Project     = "FELJATTIOUI"
+  ManagedBy   = "Terraform"
+}
+
+# -----------------------------------------------------------------------------
+# Storage Account ADLS Gen2 (Data Lake)
+# IMPORTANT: Le nom doit être unique globalement sur Azure (3-24 caractères, minuscules et chiffres uniquement)
+# -----------------------------------------------------------------------------
+
+adls_storage_account_name = "adlseljattioui"
+adls_replication_type     = "RAGRS"  # Read-Access Geo-Redundant Storage
+
+adls_containers = [
+  "insights-logs-auditevent",
+  "logs",
+  "nyc-taxi",
+  "wttj"
+]
+
+# -----------------------------------------------------------------------------
+# Storage Account Blob Standard
+# IMPORTANT: Le nom doit être unique globalement sur Azure
+# -----------------------------------------------------------------------------
+
+blob_storage_account_name = "blobfeljattioui"
+blob_replication_type     = "LRS"  # Locally Redundant Storage
+
+blob_containers = [
+  "amazon",
+  "api",
+  "students"
+]
+
+# -----------------------------------------------------------------------------
+# SQL Server
+# IMPORTANT: Le nom doit être unique globalement sur Azure
+# -----------------------------------------------------------------------------
+
+sql_server_name  = "fatiserveur"
+sql_admin_login  = "fatima"
+sql_admin_password = "Plasma2020fat"  # IMPORTANT: Utilisez un mot de passe fort
+
+# -----------------------------------------------------------------------------
+# SQL Database
+# Configuration Serverless Gen5 (idéal pour les charges de travail variables)
+# -----------------------------------------------------------------------------
+
+sql_database_name         = "wttj"
+sql_database_max_size_gb  = 32
+sql_database_sku_name     = "GP_S_Gen5_1"  # General Purpose Serverless Gen5, 1 vCore max
+sql_database_min_capacity = 0.5            # 0.5 vCore minimum
+sql_database_auto_pause_delay = 60         # Pause après 60 minutes d'inactivité
+
+# -----------------------------------------------------------------------------
+# SQL Firewall Rules
+# Ajoutez les adresses IP qui doivent accéder au serveur SQL
+# -----------------------------------------------------------------------------
+
+sql_firewall_rules = [
+  {
+    name             = "ClientIP_1"
+    start_ip_address = "90.39.20.177"
+    end_ip_address   = "90.39.20.177"
+  },
+  {
+    name             = "ClientIP_2"
+    start_ip_address = "185.39.171.242"
+    end_ip_address   = "185.39.171.242"
+  }
+]
+
+allow_azure_services = true  # Autoriser les services Azure à accéder au SQL Server
