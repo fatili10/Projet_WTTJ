@@ -1,0 +1,11 @@
+# Secrets et données sensibles
+terraform.tfvars
+terraform.tfstate
+terraform.tfstate.backup
+
+# Providers (binaires lourds)
+.terraform/
+
+# Fichiers temporaires
+*.tfplan
+crash.log

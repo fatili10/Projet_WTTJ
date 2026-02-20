@@ -120,6 +120,36 @@ def run_cleaning():
         return False
 
 
+def run_upload_datalake(zone: str) -> bool:
+    """Upload le CSV vers la zone correspondante du data lake Azure"""
+    logger.info("=" * 50)
+    logger.info(f"ÉTAPE DATA LAKE: UPLOAD ZONE {zone.upper()}")
+    logger.info("=" * 50)
+
+    try:
+        from scripts.data.upload_to_datalake import upload_raw, upload_curated
+
+        date_str = datetime.now().strftime("%Y-%m-%d")
+
+        if zone == "raw":
+            success = upload_raw(RAW_CSV, date_str)
+        elif zone == "curated":
+            success = upload_curated(CLEAN_CSV, date_str)
+        else:
+            logger.error(f"Zone inconnue : {zone}")
+            return False
+
+        if success:
+            logger.info(f"Upload {zone} terminé avec succès")
+        else:
+            logger.warning(f"Upload {zone} échoué — pipeline continue")
+        return success
+
+    except Exception as e:
+        logger.warning(f"Upload data lake non critique — pipeline continue : {e}")
+        return False
+
+
 def run_insertion():
     """Insère les données en base"""
     logger.info("=" * 50)
@@ -355,12 +385,20 @@ def run_full_pipeline():
         logger.error("Échec du scraping - Pipeline interrompu")
         success = False
 
+    # Étape 1b: Upload zone RAW vers ADLS
+    if success:
+        run_upload_datalake("raw")
+
     # Étape 2: Nettoyage
     if success and not run_cleaning():
         logger.error("Échec du nettoyage - Pipeline interrompu")
         success = False
 
-    # Étape 3: Insertion
+    # Étape 2b: Upload zone CURATED vers ADLS
+    if success:
+        run_upload_datalake("curated")
+
+    # Étape 3: Insertion (zone SERVING = Azure SQL Server)
     if success and not run_insertion():
         logger.error("Échec de l'insertion - Pipeline interrompu")
         success = False

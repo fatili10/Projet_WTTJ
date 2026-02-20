@@ -8,7 +8,8 @@ from datetime import datetime
 from sqlalchemy.orm import sessionmaker
 
 # Ajouter le chemin racine au PYTHONPATH
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.insert(0, ROOT_DIR)
 
 from src.database.db import engine
 from src.database.models import Base, Company, Location, Job, Media, Skill, Tool, Benefit
@@ -71,7 +72,7 @@ def insert_data():
 
     try:
         print("Chargement du fichier CSV...")
-        df = pd.read_csv('data/jobs_clean.csv')
+        df = pd.read_csv(os.path.join(ROOT_DIR, 'data', 'archive', 'jobs_clean_20260217_174627.csv'))
         print(f"Nombre de lignes chargees: {len(df)}")
 
         # Remplacer NaN par None
@@ -224,7 +225,12 @@ def insert_data():
                         )
                         session.add(benefit)
 
-        # Commit final
+            # Commit par batch de 50 lignes
+            if idx % 50 == 0 and idx > 0:
+                session.commit()
+                print(f"  Batch commit a la ligne {idx}")
+
+        # Commit final pour les dernières lignes
         print("\nEnregistrement en base de donnees...")
         session.commit()
         print("Insertion terminee avec succes!")
