@@ -1,16 +1,20 @@
 # WTTJ - Welcome To The Jungle Job Scraper & API
 
-Projet de scraping d'offres d'emploi depuis Welcome To The Jungle avec une API REST pour consulter les donnees.
+Projet de scraping d'offres d'emploi depuis Welcome To The Jungle avec un pipeline de données complet : collecte, nettoyage, stockage sur Azure Data Lake Gen2, insertion en base SQL et exposition via une API REST.
 
 ## Table des matieres
 
 - [Architecture du projet](#architecture-du-projet)
+- [Workflow complet](#workflow-complet)
 - [Schema de la base de donnees](#schema-de-la-base-de-donnees)
+- [Infrastructure Azure (Terraform)](#infrastructure-azure-terraform)
+- [Data Catalog (OpenMetadata)](#data-catalog-openmetadata)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Utilisation](#utilisation)
 - [Scripts disponibles](#scripts-disponibles)
 - [API Endpoints](#api-endpoints)
+- [Technologies utilisees](#technologies-utilisees)
 
 ---
 
@@ -20,9 +24,20 @@ Projet de scraping d'offres d'emploi depuis Welcome To The Jungle avec une API R
 wttj/
 ├── main_api.py              # Point d'entree de l'API FastAPI
 ├── main_scraper.py          # Point d'entree du scraper
+├── run_pipeline.py          # Orchestrateur du pipeline complet
 ├── config.py                # Configuration (mots-cles, pays)
 ├── requirements.txt         # Dependances Python
+├── docker-compose.yml       # Stack OpenMetadata (data catalog)
 ├── .env                     # Variables d'environnement (non versionne)
+│
+├── fatima-transfer/
+│   └── terraform/           # Infrastructure as Code (Azure)
+│       ├── main.tf          # Provider et resource group
+│       ├── storage.tf       # ADLS Gen2 + Blob Storage
+│       ├── sql.tf           # Azure SQL Server et base de donnees
+│       ├── variables.tf     # Declaration des variables
+│       ├── outputs.tf       # Sorties (URLs, noms des ressources)
+│       └── terraform.tfvars.example  # Exemple de configuration
 │
 ├── src/
 │   ├── api/
@@ -56,12 +71,43 @@ wttj/
 │   │   └── test_connection.py  # Teste la connexion a la base
 │   │
 │   └── data/
-│       ├── insert_data.py      # Insere les donnees du CSV
-│       └── insert_clean_data.py # Insere les donnees nettoyees
+│       ├── insert_data.py          # Insere les donnees du CSV
+│       ├── insert_clean_data.py    # Insere les donnees nettoyees
+│       └── upload_to_datalake.py   # Upload vers Azure Data Lake Gen2
 │
 └── data/
-    └── data.csv             # Donnees scrapees (genere)
+    └── archive/             # Archives horodatees des CSV (genere)
 ```
+
+---
+
+## Workflow complet
+
+```
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────────┐
+│  main_scraper.py │────▶│   data/data.csv  │────▶│  Azure ADLS Gen2     │
+│  (Selenium +     │     │  (zone RAW)      │     │  raw/YYYY-MM-DD/     │
+│   API WTTJ)      │     └──────────────────┘     └──────────────────────┘
+└──────────────────┘              │
+                                  ▼
+                       ┌──────────────────┐     ┌──────────────────────┐
+                       │  data_cleaner.py │────▶│  Azure ADLS Gen2     │
+                       │  (nettoyage)     │     │  curated/YYYY-MM-DD/ │
+                       └──────────────────┘     └──────────────────────┘
+                                  │
+                                  ▼
+                       ┌──────────────────┐     ┌──────────────────────┐
+                       │insert_clean_data │────▶│  Azure SQL Server    │
+                       │  (zone SERVING)  │     │  (base wttj)         │
+                       └──────────────────┘     └──────────────────────┘
+                                                           │
+                       ┌──────────────────┐               ▼
+                       │  Utilisateurs    │◀────  main_api.py (FastAPI)
+                       │  (via API REST)  │
+                       └──────────────────┘
+```
+
+Le pipeline est orchestre par `run_pipeline.py` qui execute chaque etape sequentiellement et gere les logs et l'archivage.
 
 ---
 
@@ -87,8 +133,8 @@ wttj/
 ├─────────────────┤   │   │ recruitment_process                     │
 │ id (PK)         │◄──┼───│ cover_letter / resume / portfolio       │
 │ address         │   │   │ picture                                 │
-│ local_address   │   │   │ company_id (FK) ──────────────────────┬─┘
-│ city            │   │   │ location_id (FK) ─────────────────────┘
+│ local_address   │   │   │ company_id (FK)                        │
+│ city            │   │   │ location_id (FK)                       │
 │ zip_code        │   │   └─────────────────────────────────────────┘
 │ district        │   │               │
 │ latitude        │   └───────────────┤
@@ -119,6 +165,55 @@ wttj/
 
 ---
 
+## Infrastructure Azure (Terraform)
+
+La configuration Terraform dans `fatima-transfer/terraform/` provisionne automatiquement :
+
+- **Azure Data Lake Gen2** (ADLS) — stockage zones RAW et CURATED
+- **Azure Blob Storage** — stockage complementaire
+- **Azure SQL Server + Database** — zone SERVING (base `wttj`)
+
+### Deployer l'infrastructure
+
+```bash
+cd fatima-transfer/terraform
+
+# 1. Copier et remplir le fichier de variables
+cp terraform.tfvars.example terraform.tfvars
+# Editer terraform.tfvars avec tes valeurs (mots de passe, noms uniques, etc.)
+
+# 2. Initialiser Terraform
+terraform init
+
+# 3. Verifier le plan de deploiement
+terraform plan
+
+# 4. Appliquer
+terraform apply
+```
+
+> **Important** : Ne jamais commiter `terraform.tfvars` (contient les secrets) ni `terraform.tfstate`.
+
+---
+
+## Data Catalog (OpenMetadata)
+
+Le fichier `docker-compose.yml` lance une instance locale d'**OpenMetadata** pour cataloguer les donnees du projet.
+
+### Lancer OpenMetadata
+
+```bash
+docker compose up -d
+```
+
+Services demarres :
+- **OpenMetadata UI** : http://localhost:8585
+- **Airflow** (ingestion) : http://localhost:8080
+- **Elasticsearch** : http://localhost:9200
+- MySQL (interne, port 3306)
+
+---
+
 ## Installation
 
 ### Prerequis
@@ -126,6 +221,8 @@ wttj/
 - Python 3.10+
 - Chrome + ChromeDriver (pour le scraping)
 - ODBC Driver 18 for SQL Server
+- Docker (pour OpenMetadata)
+- Terraform (pour le provisionnement Azure)
 
 ### Etapes
 
@@ -145,9 +242,6 @@ source venv/bin/activate
 
 # 4. Installer les dependances
 pip install -r requirements.txt
-
-# 5. Installer les dependances supplementaires pour l'API
-pip install python-jose[cryptography] passlib[bcrypt]
 ```
 
 ---
@@ -163,10 +257,8 @@ SQL_DATABASE=wttj
 SQL_USERNAME=votre-username
 SQL_PASSWORD=votre-password
 
-# Azure Storage (optionnel - pour le data lake)
-RESOURCE_GROUP=votre-resource-group
-LOCATION=francecentral
-STORAGE_ACCOUNT=votre-storage-account
+# Azure Data Lake Gen2 (ADLS)
+STORAGE_ACCOUNT=adlswttjstudent
 CONTAINER_NAME=wttj
 ACCOUNT_KEY=votre-account-key
 ```
@@ -188,36 +280,44 @@ KEYWORDS = [
 
 ## Utilisation
 
-### 1. Lancer le scraping
-
-Collecte les offres d'emploi depuis Welcome To The Jungle :
+### Pipeline complet (recommande)
 
 ```bash
+# Execution complete : scraping + upload ADLS + nettoyage + insertion SQL
+python run_pipeline.py
+
+# Nettoyage + insertion seulement (si data.csv existe deja)
+python run_pipeline.py --clean
+
+# Insertion seulement (si jobs_clean.csv existe deja)
+python run_pipeline.py --insert
+
+# Sans archivage des CSV en fin de pipeline
+python run_pipeline.py --no-cleanup
+```
+
+### Etapes manuelles
+
+```bash
+# 1. Scraping
 python main_scraper.py
-```
 
-Resultat : fichier `data/data.csv` genere avec toutes les offres.
-
-### 2. Creer les tables en base
-
-```bash
+# 2. Creer les tables en base
 python scripts/database/create_tables.py
-```
 
-### 3. Inserer les donnees
+# 3. Inserer les donnees nettoyees
+python scripts/data/insert_clean_data.py
 
-```bash
-python scripts/data/insert_data.py
-```
+# 4. Upload vers le data lake
+python scripts/data/upload_to_datalake.py --zone raw --file data/data.csv
+python scripts/data/upload_to_datalake.py --zone curated --file data/jobs_clean.csv
+python scripts/data/upload_to_datalake.py --zone all
 
-### 4. Lancer l'API
-
-```bash
+# 5. Lancer l'API
 uvicorn main_api:app --reload --host 127.0.0.1 --port 8000
 ```
 
 L'API sera accessible sur : http://127.0.0.1:8000
-
 Documentation Swagger : http://127.0.0.1:8000/docs
 
 ---
@@ -226,26 +326,15 @@ Documentation Swagger : http://127.0.0.1:8000/docs
 
 | Script | Description |
 |--------|-------------|
-| `main_scraper.py` | Lance le scraping complet (Selenium + API WTTJ) |
+| `run_pipeline.py` | Orchestrateur complet du pipeline |
+| `main_scraper.py` | Lance le scraping (Selenium + API WTTJ) |
 | `main_api.py` | Lance l'API FastAPI |
 | `scripts/database/create_tables.py` | Cree les tables dans Azure SQL |
 | `scripts/database/reset_database.py` | Supprime et recree toutes les tables |
 | `scripts/database/test_connection.py` | Teste la connexion a la base |
-| `scripts/data/insert_data.py` | Insere les donnees CSV en base |
-
-### Detail des scripts principaux
-
-#### `main_scraper.py`
-1. Utilise Selenium pour parcourir les pages de recherche WTTJ
-2. Collecte les liens des offres d'emploi
-3. Appelle l'API WTTJ pour enrichir chaque offre (details, skills, benefits)
-4. Exporte le tout dans `data/data.csv`
-
-#### `main_api.py`
-Lance une API REST FastAPI avec :
-- Authentification JWT
-- Routes pour consulter jobs, companies, locations, skills
-- Pagination sur toutes les routes
+| `scripts/data/insert_data.py` | Insere les donnees CSV brutes en base |
+| `scripts/data/insert_clean_data.py` | Insere les donnees nettoyees en base |
+| `scripts/data/upload_to_datalake.py` | Upload CSV vers Azure ADLS Gen2 |
 
 ---
 
@@ -254,7 +343,6 @@ Lance une API REST FastAPI avec :
 ### Authentification
 
 ```bash
-# Obtenir un token
 POST /auth/login
 Content-Type: application/x-www-form-urlencoded
 
@@ -288,30 +376,10 @@ Toutes les routes de liste acceptent :
 ### Exemple d'appel
 
 ```bash
-# Avec curl
 curl -X GET "http://127.0.0.1:8000/jobs/?skip=0&limit=10" \
   -H "Authorization: Bearer <votre-token>"
 
-# Liste des entreprises (sans auth)
 curl -X GET "http://127.0.0.1:8000/companies/?limit=5"
-```
-
----
-
-## Workflow complet
-
-```
-┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│  main_scraper.py │────▶│    data.csv      │────▶│  insert_data.py  │
-│   (Selenium +    │     │  (fichier local) │     │  (vers Azure SQL)│
-│    API WTTJ)     │     │                  │     │                  │
-└──────────────────┘     └──────────────────┘     └──────────────────┘
-                                                           │
-                                                           ▼
-                         ┌──────────────────┐     ┌──────────────────┐
-                         │  Utilisateurs    │◀────│   main_api.py    │
-                         │  (via API REST)  │     │    (FastAPI)     │
-                         └──────────────────┘     └──────────────────┘
 ```
 
 ---
@@ -319,7 +387,11 @@ curl -X GET "http://127.0.0.1:8000/companies/?limit=5"
 ## Technologies utilisees
 
 - **Scraping** : Selenium, BeautifulSoup, Requests
+- **Pipeline** : Python (run_pipeline.py)
 - **API** : FastAPI, Uvicorn
 - **Base de donnees** : Azure SQL Server, SQLAlchemy
+- **Data Lake** : Azure Data Lake Gen2 (ADLS), azure-storage-blob
+- **Infrastructure** : Terraform (Azure provider)
+- **Data Catalog** : OpenMetadata (Docker)
 - **Authentification** : JWT (python-jose), Passlib
 - **Data** : Pandas, NumPy
