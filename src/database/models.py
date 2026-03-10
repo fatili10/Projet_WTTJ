@@ -278,7 +278,7 @@ class Job(Base):
     wttj_reference = Column(String(255), nullable=True)
     poste = Column(String(255), nullable=True)
     remote = Column(String(255), nullable=True)
-    url = Column(String(255), nullable=True)
+    url = Column(Text, nullable=True)
     education_level = Column(String(255), nullable=True)
     profile = Column(Text, nullable=True)
     salary_min = Column(Integer, nullable=True)

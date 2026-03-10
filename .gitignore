@@ -48,4 +48,14 @@ nul
 *.tmp
 *.temp
 
+# Claude
+.claude/
+
+# Docs
+docs/
+
+# Scripts
+generate_rapport.py
+generate_docx_rapport.py
+
 
